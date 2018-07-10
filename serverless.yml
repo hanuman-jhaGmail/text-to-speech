@@ -73,7 +73,6 @@ functions:
           topicName: ${self:provider.environment.SNS_TOPIC}
           displayName: Trigger Lambda to Convert Text to Audio
   
-  
 resources:
   Resources:
     PollyPostTable:
