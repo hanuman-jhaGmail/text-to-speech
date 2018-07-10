@@ -1,0 +1,156 @@
+service: ttsapp # NOTE: update this with your service name
+
+# Plugin to host static website on AWS s3 bucket
+plugins:
+  - serverless-s3-sync
+
+custom:
+  s3Sync:
+    - bucketName: ${self:provider.environment.SITE_NAME}
+      localDir: static
+
+provider:
+  name: aws
+  runtime: nodejs6.10
+  environment:
+    DYNAMODB_TABLE: ${self:service}-ttstable-${self:provider.stage}
+    SNS_TOPIC: ${self:service}-triggertoaudio-${self:provider.stage}
+    BUCKET_NAME: ${self:service}-audiomp3-${self:provider.stage}
+    SITE_NAME: ${self:service}-static-site-${self:provider.stage}
+
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+        - polly:SynthesizeSpeech
+        - sns:Publish
+        - s3:PutObject
+        - logs:CreateLogGroup
+        - logs:CreateLogStream
+        - logs:PutLogEvents
+        - logs:*
+      Resource: "*"
+    
+
+# you can overwrite defaults here
+  stage: dev
+  region: ap-south-1
+  profile: hanuman-personal
+
+functions:
+  createposts:
+    handler: createposts.create
+    name: ${self:service}-createposts-${self:provider.stage}
+    events:
+      - http:
+          path: ttsapi
+          method: post
+          cors: true
+  getposts:
+    handler: getposts.get
+    name: ${self:service}-getposts-${self:provider.stage}
+    events:
+      - http:
+          path: ttsapi
+          method: get
+          cors: true
+          request:
+            parameters:
+              querystrings:
+                postId: true
+
+  texttoaudio:
+    handler: texttoaudio.texttoaudio
+    name: ${self:service}-texttoaudio-${self:provider.stage}
+    events:
+      - sns:
+          topicName: ${self:provider.environment.SNS_TOPIC}
+          displayName: Trigger Lambda to Convert Text to Audio
+  
+  
+resources:
+  Resources:
+    PollyPostTable:
+        Type: AWS::DynamoDB::Table
+        Properties:
+          TableName: ${self:provider.environment.DYNAMODB_TABLE}
+          AttributeDefinitions:
+            - AttributeName: Id
+              AttributeType: S
+          KeySchema: 
+            - AttributeName: Id
+              KeyType: HASH
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+
+    Mp3Bucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        AccessControl: PublicRead
+        BucketName: ${self:provider.environment.BUCKET_NAME}
+    Mp3S3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket:
+          Ref: Mp3Bucket
+        PolicyDocument:
+          Statement:
+            - Sid: PublicReadGetObject
+              Effect: Allow
+              Principal: "*"
+              Action:
+              - s3:GetObject
+              Resource:
+                Fn::Join: [
+                  "", [
+                    "arn:aws:s3:::",
+                    {
+                      "Ref": "Mp3Bucket"
+                    },
+                    "/*"
+                  ]
+                ]
+    
+    StaticSite:
+      Type: AWS::S3::Bucket
+      Properties:
+        AccessControl: PublicRead
+        BucketName: ${self:provider.environment.SITE_NAME}
+        WebsiteConfiguration:
+          IndexDocument: index.html
+    StaticSiteS3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket:
+          Ref: StaticSite
+        PolicyDocument:
+          Statement:
+            - Sid: PublicReadGetObject
+              Effect: Allow
+              Principal: "*"
+              Action:
+              - s3:GetObject
+              Resource:
+                Fn::Join: [
+                  "", [
+                    "arn:aws:s3:::",
+                    {
+                      "Ref": "StaticSite"
+                    },
+                    "/*"
+                  ]
+                ]
+
+
+  Outputs:
+     NewOutput:
+       Description: "Description for the output"
+       Value: "Some output value"
+
